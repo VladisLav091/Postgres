@@ -1,0 +1,128 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <libpq-fe.h>
+ 
+void print_query(PGconn *conn, char* query){
+         PGresult *res = PQexec(conn, query); //Передача запроса на сервер
+         int rows = PQntuples(res);          //Получение числа строк в результате запроса
+         int cols = PQnfields(res);          //Получение числа столбцов в результате запроса
+    
+    
+         // Проверка наличия возвращенных запросом строк. 
+         // В случае их отсутствие - аварийное завершение программы
+         if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+             printf("No data retrieved\n");        
+               PQclear(res);
+               err_exit(conn);
+           } 
+           //Вывод результата запроса на экран
+           for(int i=0; i<rows; i++) {
+               for(int j=0; j<cols; j++) {
+                   printf("%s ", PQgetvalue(res, i, j));
+               }
+               printf("\n");
+           }     
+           PQclear(res);
+       }
+
+void err_exit(PGconn *conn) {
+         PQfinish(conn); //Закрытие соединения с сервером базы данных 
+         exit(1);        //Функция возвращает значение 1 -> программа завершилась аварийно
+      }
+
+
+     /*
+      	Функция поиска информации о студенте из базы 
+     	        по его номеру студенческого билета и названию дисциплины
+                 с использованием параметрического запроса 
+     	            *conn  -> дескриптор подключения к серверу
+     	             st_id  -> номер студенческого билета
+     	             f_name -> название дисиплины
+     */
+
+
+// Функция обработки попытки SQL инъекции
+void handle_injection_attempt() {
+    printf("Предупреждение: Обнаружена попытка внедрения SQL инъекции.\n");
+    
+}
+void execute_safe_query(PGconn *conn, const char *student_id) {
+    const char *paramValues[1]; // Массив параметров запроса
+    char query[512]; // Буфер для формирования запроса
+
+    // Формирование SQL запроса с использованием параметров
+    snprintf(query, sizeof(query), "SELECT s.first_name, s.last_name, s.patronymic, fc.mark, f.field_name "
+                                    "FROM students s "
+                                    "INNER JOIN field_comprehensions fc ON s.student_id = fc.student_id "
+                                    "INNER JOIN fields f ON f.field_id = fc.field "
+                                    "WHERE s.student_id IN ($1)");
+
+    paramValues[0] = student_id; // Параметр идентификатора студента
+
+    // Выполнение безопасного SQL запроса с параметрами
+    PGresult *res = PQexecParams(conn, query, 1, NULL, paramValues, NULL, NULL, 0);
+
+    if (PQresultStatus(res) != PGRES_TUPLES_OK) { // Проверка статуса выполнения запроса
+        printf("Query execution failed: %s\n", PQerrorMessage(conn));
+        PQclear(res);
+        PQfinish(conn);
+        exit(1);
+    }
+
+
+    int rows = PQntuples(res); // Получение числа строк результата
+    int cols = PQnfields(res); // Получение числа столбцов результата
+
+    // Вывод результата запроса на экран
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            printf("%s ", PQgetvalue(res, i, j));
+        }
+        printf("\n");
+    }
+
+    PQclear(res); // Освобождение результата запроса
+}
+int check_input(const char *input) {
+    const char *blacklist[] = { "'", ";", "--" }; // Массив запрещенных строковых значений
+
+    for (int i = 0; i < sizeof(blacklist) / sizeof(blacklist[0]); i++) {
+        if (strstr(input, blacklist[i]) != NULL) { // Проверка наличия запрещенных строк
+            return 1; // Обнаружена подозрительная строка
+        }
+    }
+
+    return 0; // Подозрительных строк не обнаружено
+}
+int main() {
+    // Подключение к серверу базы данных
+    PGconn *conn = PQconnectdb("user=SAB password=123456 dbname=students");
+
+    // Проверка статуса подключения
+    if (PQstatus(conn) == CONNECTION_BAD) {
+        fprintf(stderr, "Connection to database failed: %s\n", PQerrorMessage(conn));
+        PQfinish(conn);
+        exit(1);
+    }
+
+    // Ввод идентификатора студента
+    char student_id[50];
+    printf("Введите идентификатор студента: ");
+    scanf("%49s", student_id);
+
+    // Проверка введенного идентификатора студента на наличие недопустимых символов
+    if (check_input(student_id)) {
+        handle_injection_attempt(); // Обнаружена попытка инъекции
+        PQfinish(conn);
+        return 1;
+    }
+
+    // Выполнение безопасного SQL запроса с параметрами
+    execute_safe_query(conn, student_id);
+
+    PQfinish(conn); // Закрытие соединения с сервером базы данных
+
+    return 0;
+}
+     

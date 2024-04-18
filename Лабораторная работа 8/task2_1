@@ -1,0 +1,67 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <libpq-fe.h>
+
+// Функция выполнения SQL запроса
+void execute_query(PGconn *conn, const char *query) {
+    PGresult *res = PQexec(conn, query); // Выполнение запроса
+
+    if (PQresultStatus(res) != PGRES_TUPLES_OK) { // Проверка статуса выполнения запроса
+        printf("Query execution failed: %s\n", PQerrorMessage(conn));
+        PQclear(res);
+        PQfinish(conn);
+        exit(1);
+    }
+
+    int rows = PQntuples(res); // Получение числа строк результата
+    int cols = PQnfields(res); // Получение числа столбцов результата
+
+    // Вывод результата запроса на экран
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            printf("%s ", PQgetvalue(res, i, j));
+        }
+        printf("\n");
+    }
+
+    PQclear(res); // Освобождение результата запроса
+}
+
+// Функция для выполнения безопасного SQL запроса с параметрами
+void execute_safe_query(PGconn *conn, const char *student_id) {
+    const char *paramValues[1]; // Массив параметров запроса
+    char query[512]; // Буфер для формирования запроса
+
+    // Формирование SQL запроса с использованием параметров
+    snprintf(query, sizeof(query), "SELECT * FROM students_field_mark WHERE student_id = '%s'", student_id);
+
+    paramValues[0] = student_id; // Параметр идентификатора студента
+
+    // Выполнение SQL запроса
+    execute_query(conn, query);
+}
+
+int main() {
+    // Подключение к серверу базы данных
+    PGconn *conn = PQconnectdb("user=SAB password=123456 dbname=students");
+
+    // Проверка статуса подключения
+    if (PQstatus(conn) == CONNECTION_BAD) {
+        fprintf(stderr, "Connection to database failed: %s\n", PQerrorMessage(conn));
+        PQfinish(conn);
+        exit(1);
+    }
+
+    // Ввод идентификатора студента
+    char student_id[50];
+    printf("Введите идентификатор студента: ");
+    scanf("%s", student_id);
+
+    // Выполнение безопасного SQL запроса с параметрами
+    execute_safe_query(conn, student_id);
+
+    PQfinish(conn); // Закрытие соединения с сервером базы данных
+
+    return 0;
+}
